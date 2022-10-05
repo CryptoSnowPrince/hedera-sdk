@@ -1,78 +1,64 @@
-console.clear();
-require("dotenv").config();
 const {
-	AccountId,
-	PrivateKey,
-	Client,
-	TokenCreateTransaction,
-	TokenType,
-	TokenSupplyType,
-	TransferTransaction,
-	AccountBalanceQuery,
-	TokenAssociateTransaction,
-} = require("@hashgraph/sdk");
+    Client,
+    TokenCreateTransaction,
+    PrivateKey, AccountId, AccountCreateTransaction, Hbar
+} = require('@hashgraph/sdk');
 
-// Configure accounts and client, and generate needed keys
-const operatorId = AccountId.fromString(process.env.OPERATOR_ID);
-const operatorKey = PrivateKey.fromString(process.env.OPERATOR_PVKEY);
-const treasuryId = AccountId.fromString(process.env.TREASURY_ID);
-const treasuryKey = PrivateKey.fromString(process.env.TREASURY_PVKEY);
-const aliceId = AccountId.fromString(process.env.ALICE_ID);
-const aliceKey = PrivateKey.fromString(process.env.ALICE_PVKEY);
+require('dotenv').config();
+
+// Get operator from .env file
+const operatorKey = PrivateKey.fromString(process.env.MY_PRIVATE_KEY);
+const operatorId = AccountId.fromString(process.env.MY_ACCOUNT_ID);
 
 const client = Client.forTestnet().setOperator(operatorId, operatorKey);
 
-const supplyKey = PrivateKey.generate();
+// Account creation function
+async function accountCreator(pvKey, iBal) {
 
-async function main() {
-	//CREATE FUNGIBLE TOKEN (STABLECOIN)
-	let tokenCreateTx = await new TokenCreateTransaction()
-		.setTokenName("Hedera Fire")
-		.setTokenSymbol("HFire")
-		.setTokenType(TokenType.FungibleCommon)
-		.setDecimals(18)
-		.setInitialSupply(100000000)
-		.setTreasuryAccountId(treasuryId)
-		.setSupplyType(TokenSupplyType.Infinite)
-		.setSupplyKey(supplyKey)
-		.freezeWith(client);
+    const response = await new AccountCreateTransaction()
+        .setInitialBalance(new Hbar(iBal))
+        .setKey(pvKey.publicKey)
+        .execute(client);
 
-	let tokenCreateSign = await tokenCreateTx.sign(treasuryKey);
-	let tokenCreateSubmit = await tokenCreateSign.execute(client);
-	let tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
-	let tokenId = tokenCreateRx.tokenId;
-	console.log(`- Created token with ID: ${tokenId} \n`);
+    const receipt = await response.getReceipt(client);
 
-	//TOKEN ASSOCIATION WITH ALICE's ACCOUNT
-	let associateAliceTx = await new TokenAssociateTransaction()
-		.setAccountId(aliceId)
-		.setTokenIds([tokenId])
-		.freezeWith(client)
-		.sign(aliceKey);
-	let associateAliceTxSubmit = await associateAliceTx.execute(client);
-	let associateAliceRx = await associateAliceTxSubmit.getReceipt(client);
-	console.log(`- Token association with Alice's account: ${associateAliceRx.status} \n`);
-
-	//BALANCE CHECK
-	var balanceCheckTx = await new AccountBalanceQuery().setAccountId(treasuryId).execute(client);
-	console.log(`- Treasury balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} units of token ID ${tokenId}`);
-	var balanceCheckTx = await new AccountBalanceQuery().setAccountId(aliceId).execute(client);
-	console.log(`- Alice's balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} units of token ID ${tokenId}`);
-
-	//TRANSFER STABLECOIN FROM TREASURY TO ALICE
-	let tokenTransferTx = await new TransferTransaction()
-		.addTokenTransfer(tokenId, treasuryId, -2500)
-		.addTokenTransfer(tokenId, aliceId, 2500)
-		.freezeWith(client)
-		.sign(treasuryKey);
-	let tokenTransferSubmit = await tokenTransferTx.execute(client);
-	let tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
-	console.log(`\n- Stablecoin transfer from Treasury to Alice: ${tokenTransferRx.status} \n`);
-
-	//BALANCE CHECK
-	var balanceCheckTx = await new AccountBalanceQuery().setAccountId(treasuryId).execute(client);
-	console.log(`- Treasury balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} units of token ID ${tokenId}`);
-	var balanceCheckTx = await new AccountBalanceQuery().setAccountId(aliceId).execute(client);
-	console.log(`- Alice's balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} units of token ID ${tokenId}`);
+    return receipt.accountId;
 }
+
+const main = async () => {
+
+    const treasuryKey = PrivateKey.generateED25519();
+    const treasuryId = await accountCreator(treasuryKey, 10);
+
+    console.log(`Prince log >>>>> treasuryId: ${treasuryId}`);
+    console.log(`Prince log >>>>> treasuryKey: ${treasuryKey}`);
+
+    //Create the transaction and freeze for manual signing
+    const transaction = await new TokenCreateTransaction()
+        .setTokenName("Hedera Fire")
+        .setTokenSymbol("HFire")
+        .setTreasuryAccountId(treasuryId)
+        .setInitialSupply(10 ** 8 * 10 ** 8)
+        .setDecimals(8)
+        .setAutoRenewAccountId(treasuryId)
+        .setAutoRenewPeriod(7000000)
+        .setMaxTransactionFee(new Hbar(30)) //Change the default max transaction fee
+        .freezeWith(client);
+
+    //Sign the transaction with the token adminKey and the token treasury account private key
+    const signTx = await transaction.sign(treasuryKey);
+
+    //Sign the transaction with the client operator private key and submit to a Hedera network
+    const txResponse = await signTx.execute(client);
+
+    //Get the receipt of the transaction
+    const receipt = await txResponse.getReceipt(client);
+
+    //Get the token ID from the receipt
+    const tokenId = receipt.tokenId;
+
+    console.log("The new token ID is " + tokenId);
+
+}
+
 main();
