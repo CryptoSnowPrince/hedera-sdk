@@ -29,7 +29,7 @@ const supplyKey = PrivateKey.generate();
 async function main() {
     //Create the NFT
     let nftCreate = await new TokenCreateTransaction()
-        .setTokenName("diploma")
+        .setTokenName("Fire")
         .setTokenSymbol("GRAD")
         .setTokenType(TokenType.NonFungibleUnique)
         .setDecimals(0)
